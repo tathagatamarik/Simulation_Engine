@@ -1,0 +1,64 @@
+version: "3.9"
+
+services:
+  # --------------------------------------------------------------------------
+  # FastAPI Application
+  # --------------------------------------------------------------------------
+  api:
+    build: .
+    container_name: sim_engine_api
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      - redis
+    volumes:
+      - .:/app       # Hot-reload in development
+    command: uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # --------------------------------------------------------------------------
+  # Celery Worker
+  # --------------------------------------------------------------------------
+  worker:
+    build: .
+    container_name: sim_engine_worker
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      - redis
+    volumes:
+      - .:/app
+    command: celery -A tasks.celery_app worker --loglevel=info --concurrency=4
+
+  # --------------------------------------------------------------------------
+  # Redis (Result Backend + Message Broker)
+  # --------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: sim_engine_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+
+  # --------------------------------------------------------------------------
+  # Celery Flower (Monitoring Dashboard)
+  # --------------------------------------------------------------------------
+  flower:
+    build: .
+    container_name: sim_engine_flower
+    ports:
+      - "5555:5555"
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - redis
+      - worker
+    command: celery -A tasks.celery_app flower --port=5555
+
+volumes:
+  redis_data:
